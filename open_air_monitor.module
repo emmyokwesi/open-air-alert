@@ -1,0 +1,208 @@
+<?php
+
+use Drupal\node\Entity\Node;
+
+/**
+ * Implements hook_cron().
+ */
+function open_air_monitor_cron() {
+
+  $service = \Drupal::service('open_air_monitor.reader');
+
+  $nodes = \Drupal::entityTypeManager()
+    ->getStorage('node')
+    ->loadByProperties([
+      'type' => 'city_monitor',
+      'status' => 1,
+    ]);
+
+  foreach ($nodes as $node) {
+
+    $city = $node->get('field_city')->value;
+
+    $data = $service->getCityData($city);
+
+    if (!$data) {
+      continue;
+    }
+
+    $old_status = $node->get('field_current_status')->value;
+
+    $new_status = $data['status'];
+
+    $node->set('field_current_status', $new_status);
+
+    $node->set(
+      'field_average_pm25',
+      $data['average_pm25']
+    );
+
+    $node->set(
+      'field_last_checked',
+      date('Y-m-d\TH:i:s')
+    );
+
+    $node->save();
+
+    if ($old_status != $new_status) {
+
+      open_air_monitor_send_alerts(
+        $city,
+        $old_status,
+        $new_status,
+        $data
+      );
+
+    }
+
+  }
+
+}
+
+/**
+ * Send alerts to subscribers.
+ */
+function open_air_monitor_send_alerts(
+  $city,
+  $old_status,
+  $new_status,
+  $data
+) {
+
+  $subscriptions = \Drupal::entityTypeManager()
+    ->getStorage('node')
+    ->loadByProperties([
+      'type' => 'city_subscription',
+      'status' => 1,
+    ]);
+
+  foreach ($subscriptions as $subscription) {
+
+    if ($subscription->get('field_city')->value != $city) {
+      continue;
+    }
+
+    $phone = $subscription
+      ->get('field_phone_number')
+      ->value;
+
+    $email = $subscription
+      ->get('field_email')
+      ->value;
+
+    $hotspots = '';
+
+    foreach ($data['sensors'] as $sensor) {
+
+      if ($sensor['pm25'] >= 20) {
+
+        $hotspots .=
+          $sensor['emoji']
+          . ' '
+          . $sensor['name']
+          . ' (PM2.5: '
+          . $sensor['pm25']
+          . ")\n";
+
+      }
+
+    }
+
+    $message =
+      $data['emoji']
+      . ' '
+      . ucfirst($city)
+      . " Air Alert\n\n"
+
+      . "Overall Status: "
+      . $new_status
+      . "\n"
+
+      . "Average PM2.5: "
+      . $data['average_pm25']
+      . "\n"
+
+      . "Updated: "
+      . date('Y-m-d H:i:s')
+      . "\n\n"
+
+      . "Behaviour Advice:\n"
+      . $data['advice']
+      . "\n\n"
+
+      . "Areas Requiring Attention:\n"
+      . $hotspots;
+
+    if (!empty($phone)) {
+
+      \Drupal::logger('open_air_monitor')
+        ->notice(
+          'Phone Alert sent to '
+          . $phone
+          . ':<br><pre>'
+          . $message
+          . '</pre>'
+        );
+
+    }
+
+    if (!empty($email)) {
+
+      $mailManager = \Drupal::service('plugin.manager.mail');
+
+      $module = 'open_air_monitor';
+
+      $key = 'city_air_alert';
+
+      $to = $email;
+
+      $params['subject'] =
+        ucfirst($city) . ' Air Alert';
+
+      $params['message'] = $message;
+
+      $langcode = \Drupal::currentUser()
+        ->getPreferredLangcode();
+
+      $send = TRUE;
+
+      $mailManager->mail(
+        $module,
+        $key,
+        $to,
+        $langcode,
+        $params,
+        NULL,
+        $send
+      );
+
+    }
+
+  }
+
+}
+
+/**
+ * Implements hook_mail().
+ */
+function open_air_monitor_mail(
+  $key,
+  &$message,
+  $params
+) {
+
+  switch ($key) {
+
+    case 'city_air_alert':
+
+      $message['subject'] =
+        $params['subject'];
+
+      $message['body'][] =
+        $params['message'];
+
+      break;
+
+  }
+
+}
