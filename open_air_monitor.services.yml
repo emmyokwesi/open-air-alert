@@ -1,0 +1,4 @@
+services:
+  open_air_monitor.reader:
+    class: Drupal\open_air_monitor\Service\MonitorReaderService
+    arguments: ['@http_client']
