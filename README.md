@@ -1,6 +1,3 @@
-# open-air-alert
-Hyperlocal environmental intelligence and local air quality alert platform.
-
 # OpenAirAlert
 
 OpenAirAlert is an open-source hyperlocal environmental intelligence and air quality alert platform built with Drupal.
