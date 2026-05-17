@@ -1,0 +1,7 @@
+open_air_monitor.test:
+  path: '/open-air-monitor/test/{city}'
+  defaults:
+    _controller: '\Drupal\open_air_monitor\Controller\MonitorTestController::test'
+    _title: 'City Air Monitor'
+  requirements:
+    _permission: 'access content'
